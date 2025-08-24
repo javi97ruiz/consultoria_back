@@ -9,16 +9,16 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// Configuración del transporter
 const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
-        user: process.env.EMAIL_USER, // tu_correo@gmail.com
-        pass: process.env.EMAIL_PASS  // contraseña de aplicación
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
     },
 });
 
-// Verifica conexión con Gmail
-transporter.verify((error, success) => {
+transporter.verify((error) => {
     if (error) {
         console.error("❌ Error al conectar con Gmail:", error);
     } else {
@@ -26,42 +26,65 @@ transporter.verify((error, success) => {
     }
 });
 
-app.post("/send-email", async (req, res) => {
-    const { nombre, email, mensaje } = req.body;
+// Función para plantilla del correo al admin
+const adminEmailTemplate = (nombre, email, telefono, mensaje) => `
+<div style="font-family: Arial, sans-serif; line-height: 1.5; color: #333;">
+  <h2 style="color: #004085;">📩 Nuevo mensaje desde el formulario</h2>
+  <p><strong>Nombre:</strong> ${nombre}</p>
+  <p><strong>Email:</strong> ${email}</p>
+  <p><strong>Telefono:</strong> ${telefono}</p>
+  <p><strong>Mensaje:</strong></p>
+  <blockquote style="background: #f8f9fa; padding: 10px; border-left: 4px solid #004085;">
+    ${mensaje}
+  </blockquote>
+</div>
+`;
 
-    if (!nombre || !email || !mensaje) {
+// Función para plantilla del correo al usuario
+const userEmailTemplate = (nombre) => `
+<div style="font-family: Arial, sans-serif; line-height: 1.5; color: #333;">
+  <h2 style="color: #28a745;">✅ Gracias por contactarnos</h2>
+  <p>Hola <strong>${nombre}</strong>,</p>
+  <p>Gracias por escribirnos. Hemos recibido tu mensaje y lo revisaremos a la mayor brevedad posible.</p>
+  <p>Un saludo,<br><em>El equipo de JM Merino Advocats</em></p>
+</div>
+`;
+
+app.post("/send-email", async (req, res) => {
+    const { nombre, email, mensaje, confirmarEmail, telefono, confirmTelefono } = req.body;
+
+    // Validación de campos
+    if (!nombre || !email || !mensaje || !telefono) {
         return res.status(400).json({ error: "Faltan campos obligatorios" });
     }
 
+    // Validación de coincidencia de correos
+    if (email !== confirmarEmail) {
+        return res.status(400).json({ error: "Los correos electrónicos no coinciden" });
+    }
+
+    // Validación de coincidencia de correos
+    if (telefono !== confirmTelefono) {
+        return res.status(400).json({ error: "Los telefonos no coinciden" });
+    }
+
     try {
-        // 1. Correo para ti (como administrador)
+        // Correo al administrador
         const mailToAdmin = {
             from: `"Web Contacto" <${process.env.EMAIL_USER}>`,
-            to: process.env.EMAIL_TO, // dirección tuya, definida en el .env
+            to: process.env.EMAIL_TO,
             subject: "📥 Nuevo mensaje desde el formulario de contacto",
-            html: `
-        <h3>Has recibido un nuevo mensaje desde tu web:</h3>
-        <p><strong>Nombre:</strong> ${nombre}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Mensaje:</strong></p>
-        <p>${mensaje}</p>
-      `,
+            html: adminEmailTemplate(nombre, email, telefono,  mensaje),
         };
 
-        // 2. Correo de confirmación al usuario
+        // Correo al usuario
         const mailToUser = {
             from: `"JM Merino Advocats" <${process.env.EMAIL_USER}>`,
             to: email,
             subject: "Gracias por contactarnos",
-            html: `
-        <p>Hola <strong>${nombre}</strong>,</p>
-        <p>Gracias por contactarnos. Valoraremos tu solicitud y te responderemos a la mayor brevedad posible.</p>
-        <p>Un saludo,</p>
-        <p><em>El equipo de JM Merino Advocats</em></p>
-      `,
+            html: userEmailTemplate(nombre),
         };
 
-        // Enviar ambos correos (en paralelo)
         await Promise.all([
             transporter.sendMail(mailToAdmin),
             transporter.sendMail(mailToUser),
